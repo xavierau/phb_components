@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run build:lib:*)",
+      "Bash(timeout 10 npm run dev:*)",
+      "Bash(timeout 15 npm run storybook)",
+      "Bash(grep:*)",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__new_page",
+      "Bash(curl:*)",
+      "Bash(pgrep:*)",
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__chrome-devtools__navigate_page",
+      "mcp__chrome-devtools__wait_for",
+      "mcp__chrome-devtools__take_screenshot",
+      "Bash(npm view:*)",
+      "Bash(npm info:*)",
+      "mcp__chrome-devtools__click",
+      "mcp__chrome-devtools__fill",
+      "mcp__chrome-devtools__list_console_messages",
+      "Bash(cat:*)",
+      "mcp__chrome-devtools__evaluate_script",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
