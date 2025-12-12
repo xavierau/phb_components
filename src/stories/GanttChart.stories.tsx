@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { useState } from 'react';
-import { GanttChart, GanttTaskData, InjectStyles, Card, CardHeader, CardTitle, CardContent } from '../index';
+import { GanttChart, GanttTaskData, Card, CardHeader, CardTitle, CardContent } from '../index';
+import '../styles.css';
 
 const meta: Meta<typeof GanttChart> = {
   title: 'Components/GanttChart',
@@ -8,12 +9,9 @@ const meta: Meta<typeof GanttChart> = {
   tags: ['autodocs'],
   decorators: [
     (Story) => (
-      <>
-        <InjectStyles />
-        <div className="p-4 min-h-screen bg-background">
-          <Story />
-        </div>
-      </>
+      <div className="p-4 min-h-screen bg-background">
+        <Story />
+      </div>
     ),
   ],
 };

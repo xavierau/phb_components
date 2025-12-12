@@ -90,5 +90,12 @@
     "phb"
   ],
   "license": "MIT",
-  "private": true
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xavierau/phb_components.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xavierau/phb_components/issues"
+  },
+  "homepage": "https://github.com/xavierau/phb_components#readme"
 }

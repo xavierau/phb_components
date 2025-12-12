@@ -6,8 +6,8 @@ import {
   KanbanColumn,
   KanbanColumnData,
   KanbanCardData,
-  InjectStyles,
 } from '../index';
+import '../styles.css';
 
 const meta: Meta<typeof KanbanBoard> = {
   title: 'Components/KanbanBoard',
@@ -15,12 +15,9 @@ const meta: Meta<typeof KanbanBoard> = {
   tags: ['autodocs'],
   decorators: [
     (Story) => (
-      <>
-        <InjectStyles />
-        <div className="p-4 min-h-screen bg-background">
-          <Story />
-        </div>
-      </>
+      <div className="p-4 min-h-screen bg-background">
+        <Story />
+      </div>
     ),
   ],
 };

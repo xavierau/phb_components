@@ -10,8 +10,8 @@ import {
   CardHeader,
   CardTitle,
   CardContent,
-  InjectStyles,
 } from '../index';
+import '../styles.css';
 
 // Simple data format
 const simpleData = [
@@ -73,15 +73,12 @@ const scatterMultiSeries = [
 
 // Wrapper component for stories
 const ChartWrapper = ({ children, title }: { children: React.ReactNode; title: string }) => (
-  <>
-    <InjectStyles />
-    <Card className="w-full max-w-3xl">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  </>
+  <Card className="w-full max-w-3xl">
+    <CardHeader>
+      <CardTitle>{title}</CardTitle>
+    </CardHeader>
+    <CardContent>{children}</CardContent>
+  </Card>
 );
 
 // LineChart Stories
@@ -91,12 +88,9 @@ const lineChartMeta: Meta<typeof LineChart> = {
   tags: ['autodocs'],
   decorators: [
     (Story) => (
-      <>
-        <InjectStyles />
-        <div className="p-4">
-          <Story />
-        </div>
-      </>
+      <div className="p-4">
+        <Story />
+      </div>
     ),
   ],
 };
@@ -250,9 +244,7 @@ export const ScatterChartMultiSeries: StoryObj<typeof ScatterChart> = {
 // All Charts Overview
 export const AllCharts: StoryObj = {
   render: () => (
-    <>
-      <InjectStyles />
-      <div className="grid grid-cols-2 gap-4 p-4">
+    <div className="grid grid-cols-2 gap-4 p-4">
         <Card>
           <CardHeader>
             <CardTitle>Line Chart</CardTitle>
@@ -301,7 +293,6 @@ export const AllCharts: StoryObj = {
             <ScatterChart data={scatterMultiSeries} height={250} />
           </CardContent>
         </Card>
-      </div>
-    </>
+    </div>
   ),
 };
