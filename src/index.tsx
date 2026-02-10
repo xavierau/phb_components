@@ -3560,7 +3560,7 @@ export const AICopilotChat: React.FC<AICopilotChatProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
 
@@ -3662,6 +3662,7 @@ export const AICopilotChat: React.FC<AICopilotChatProps> = ({
     onSendMessage(input.trim(), files);
     setInput('');
     setQueuedFiles([]);
+    if (inputRef.current) inputRef.current.style.height = 'auto';
   };
 
   const handleSuggestionClick = (suggestion: string) => {
@@ -4029,14 +4030,27 @@ export const AICopilotChat: React.FC<AICopilotChatProps> = ({
                 <Paperclip className="h-4 w-4" />
               </button>
             )}
-            <input
+            <textarea
               ref={inputRef}
-              type="text"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                const el = e.target;
+                el.style.height = 'auto';
+                el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (input.trim() || queuedFiles.length > 0) {
+                    handleSubmit(e);
+                  }
+                }
+              }}
               onPaste={handlePaste}
               placeholder={placeholder}
-              className="flex-1 rounded-full border bg-background px-4 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              rows={1}
+              className="flex-1 resize-none rounded-2xl border bg-background px-4 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
             <button
               type="submit"
