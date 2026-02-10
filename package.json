@@ -1,6 +1,6 @@
 {
   "name": "phb_components",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "PHB Solution React component library with Tailwind CSS",
   "type": "module",
   "main": "./dist/index.cjs",

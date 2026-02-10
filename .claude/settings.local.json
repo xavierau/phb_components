@@ -28,7 +28,11 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(git remote set-url:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(npm whoami:*)",
+      "Bash(npm publish:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx storybook:*)"
     ]
   }
 }
