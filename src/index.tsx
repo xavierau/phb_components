@@ -344,6 +344,16 @@ export interface SelectProps {
   onChange?: (value: string) => void;
   disabled?: boolean;
   className?: string;
+  /** Enable type-to-filter search input in the dropdown */
+  searchable?: boolean;
+  /** Placeholder text for the search input (only when searchable is true) */
+  searchPlaceholder?: string;
+  /** Remote search callback — when provided, enables remote mode (searchable is auto-enabled) */
+  onSearch?: (query: string) => Promise<SelectOption[]>;
+  /** Message shown while loading remote results (default: 'Loading...') */
+  loadingMessage?: string;
+  /** Message shown when no results found (default: 'No results found') */
+  noResultsMessage?: string;
 }
 
 export const Select: React.FC<SelectProps> = ({
@@ -353,21 +363,106 @@ export const Select: React.FC<SelectProps> = ({
   onChange,
   disabled,
   className,
+  searchable = false,
+  searchPlaceholder = 'Search...',
+  onSearch,
+  loadingMessage = 'Loading...',
+  noResultsMessage = 'No results found',
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [remoteOptions, setRemoteOptions] = useState<SelectOption[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedOption, setSelectedOption] = useState<SelectOption | null>(null);
   const selectRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequestIdRef = useRef(0);
+
+  const isRemote = !!onSearch;
+  const effectiveSearchable = searchable || isRemote;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
         setIsOpen(false);
+        setSearchQuery('');
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const selectedLabel = options.find((opt) => opt.value === value)?.label;
+  useEffect(() => {
+    if (isOpen && effectiveSearchable && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+    if (!isOpen) {
+      setSearchQuery('');
+      if (isRemote) {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        ++searchRequestIdRef.current;
+        setRemoteOptions([]);
+        setIsLoading(false);
+      }
+    }
+  }, [isOpen, effectiveSearchable, isRemote]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const selectedLabel =
+    options.find((opt) => opt.value === value)?.label ??
+    selectedOption?.label ??
+    remoteOptions.find((opt) => opt.value === value)?.label;
+
+  const handleSearchInputChange = (value: string) => {
+    setSearchQuery(value);
+
+    if (!isRemote) return;
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (!value.trim()) {
+      setRemoteOptions([]);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    const requestId = ++searchRequestIdRef.current;
+
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const results = await onSearch!(value);
+        if (requestId === searchRequestIdRef.current) {
+          setRemoteOptions(results);
+        }
+      } catch {
+        if (requestId === searchRequestIdRef.current) {
+          setRemoteOptions([]);
+        }
+      } finally {
+        if (requestId === searchRequestIdRef.current) {
+          setIsLoading(false);
+        }
+      }
+    }, 300);
+  };
+
+  const displayOptions = (() => {
+    if (isRemote) {
+      return searchQuery.trim() ? remoteOptions : options;
+    }
+    return effectiveSearchable && searchQuery
+      ? options.filter((opt) =>
+          opt.label.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      : options;
+  })();
 
   return (
     <div className={cn('relative w-full', className)} ref={selectRef}>
@@ -384,23 +479,58 @@ export const Select: React.FC<SelectProps> = ({
       </button>
       {isOpen && (
         <div className="absolute z-50 min-w-[8rem] w-full overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md animate-in fade-in-80 mt-1">
-          <div className="p-1">
-            {options.map((opt) => (
-              <div
-                key={opt.value}
-                onClick={() => {
-                  onChange?.(opt.value);
-                  setIsOpen(false);
-                }}
-                className={cn(
-                  'relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer',
-                  value === opt.value && 'bg-accent text-accent-foreground font-medium'
-                )}
-              >
-                {opt.label}
-                {value === opt.value && <Check className="ml-auto h-4 w-4" />}
+          {effectiveSearchable && (
+            <div className="flex items-center border-b px-3 py-2">
+              <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearchInputChange(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="flex h-7 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => handleSearchInputChange('')}
+                  className="ml-1 shrink-0 opacity-50 hover:opacity-100"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          )}
+          <div className="p-1 max-h-[200px] overflow-y-auto">
+            {isLoading ? (
+              <div className="flex items-center justify-center px-2 py-4 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {loadingMessage}
               </div>
-            ))}
+            ) : displayOptions.length === 0 ? (
+              <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                {noResultsMessage}
+              </div>
+            ) : (
+              displayOptions.map((opt) => (
+                <div
+                  key={opt.value}
+                  onClick={() => {
+                    onChange?.(opt.value);
+                    if (isRemote) setSelectedOption(opt);
+                    setIsOpen(false);
+                    setSearchQuery('');
+                  }}
+                  className={cn(
+                    'relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer',
+                    value === opt.value && 'bg-accent text-accent-foreground font-medium'
+                  )}
+                >
+                  {opt.label}
+                  {value === opt.value && <Check className="ml-auto h-4 w-4" />}
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
