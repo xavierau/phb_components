@@ -4,6 +4,7 @@ import {
   AICopilotChat,
   FloatingChatButton,
   AICopilotMessage,
+  AICopilotMessageAttachment,
   AppLayout,
   SidebarItem,
 } from '../index';
@@ -347,6 +348,287 @@ export const CustomStyling: Story = {
           title="Custom AI Chat"
           subtitle="With custom styling"
           className="max-w-lg"
+        />
+      </div>
+    );
+  },
+};
+
+// Helper to convert File objects to AICopilotMessageAttachment
+const fileToAttachment = (file: File): AICopilotMessageAttachment => ({
+  id: `${Date.now()}-${file.name}`,
+  name: file.name,
+  size: file.size,
+  type: file.type,
+  category: file.type.startsWith('image/')
+    ? 'image'
+    : file.type === 'application/pdf'
+      ? 'pdf'
+      : 'audio',
+  url: URL.createObjectURL(file),
+});
+
+// File upload enabled
+export const FileUploadEnabled: Story = {
+  render: () => {
+    const [open, setOpen] = useState(true);
+    const [messages, setMessages] = useState<AICopilotMessage[]>([
+      {
+        id: '1',
+        role: 'assistant',
+        content:
+          'Hello! You can send me files by clicking the paperclip icon or dragging files into the chat.',
+        timestamp: new Date(),
+      },
+    ]);
+    const [isTyping, setIsTyping] = useState(false);
+
+    const handleSendMessage = (content: string, attachments?: File[]) => {
+      const msgAttachments = attachments?.map(fileToAttachment);
+      const userMessage: AICopilotMessage = {
+        id: String(Date.now()),
+        role: 'user',
+        content,
+        timestamp: new Date(),
+        attachments: msgAttachments,
+      };
+      setMessages((prev) => [...prev, userMessage]);
+      setIsTyping(true);
+
+      setTimeout(() => {
+        const fileInfo = msgAttachments?.length
+          ? `\n\nI received ${msgAttachments.length} file(s): ${msgAttachments.map((a) => a.name).join(', ')}`
+          : '';
+        const aiMessage: AICopilotMessage = {
+          id: String(Date.now() + 1),
+          role: 'assistant',
+          content: `Thanks for your message!${fileInfo}`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, aiMessage]);
+        setIsTyping(false);
+      }, 1500);
+    };
+
+    const handleFileError = (errors: { file: File; reason: string }[]) => {
+      errors.forEach((e) => console.error(`File error: ${e.file.name} - ${e.reason}`));
+    };
+
+    return (
+      <div className="h-screen bg-muted/30">
+        <AICopilotChat
+          open={open}
+          onOpenChange={setOpen}
+          messages={messages}
+          onSendMessage={handleSendMessage}
+          isTyping={isTyping}
+          enableFileUpload
+          onFileError={handleFileError}
+        />
+      </div>
+    );
+  },
+};
+
+// Pre-populated messages with attachments
+export const WithAttachments: Story = {
+  render: () => {
+    const [open, setOpen] = useState(true);
+
+    const messagesWithAttachments: AICopilotMessage[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'Here are the photos from the site inspection.',
+        timestamp: new Date(Date.now() - 60000 * 4),
+        attachments: [
+          {
+            id: 'att-1',
+            name: 'site-front.jpg',
+            size: 245000,
+            type: 'image/jpeg',
+            category: 'image',
+            url: 'https://picsum.photos/400/300?random=1',
+          },
+          {
+            id: 'att-2',
+            name: 'site-aerial.jpg',
+            size: 312000,
+            type: 'image/jpeg',
+            category: 'image',
+            url: 'https://picsum.photos/400/300?random=2',
+          },
+        ],
+      },
+      {
+        id: '2',
+        role: 'assistant',
+        content:
+          'Thank you for the photos. I have attached the analysis report as a PDF for your review.',
+        timestamp: new Date(Date.now() - 60000 * 3),
+        attachments: [
+          {
+            id: 'att-3',
+            name: 'site-analysis-report.pdf',
+            size: 1540000,
+            type: 'application/pdf',
+            category: 'pdf',
+            url: 'https://example.com/mock-report.pdf',
+          },
+        ],
+      },
+      {
+        id: '3',
+        role: 'user',
+        content: 'I also recorded the ambient noise levels on site.',
+        timestamp: new Date(Date.now() - 60000 * 2),
+        attachments: [
+          {
+            id: 'att-4',
+            name: 'ambient-noise-recording.mp3',
+            size: 4200000,
+            type: 'audio/mpeg',
+            category: 'audio',
+            url: 'https://example.com/mock-audio.mp3',
+          },
+        ],
+      },
+    ];
+
+    return (
+      <div className="h-screen bg-muted/30">
+        <AICopilotChat
+          open={open}
+          onOpenChange={setOpen}
+          messages={messagesWithAttachments}
+          onSendMessage={() => {}}
+          enableFileUpload
+        />
+      </div>
+    );
+  },
+};
+
+// Full integration with file upload
+export const FileUploadWithFullIntegration: Story = {
+  render: () => {
+    const [chatOpen, setChatOpen] = useState(false);
+    const [messages, setMessages] = useState<AICopilotMessage[]>([
+      {
+        id: '1',
+        role: 'assistant',
+        content:
+          "Hi! I'm your AI assistant. You can send me text or attach files for analysis.",
+        timestamp: new Date(),
+      },
+    ]);
+    const [isTyping, setIsTyping] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(1);
+
+    const handleSendMessage = (content: string, attachments?: File[]) => {
+      const msgAttachments = attachments?.map(fileToAttachment);
+      const userMessage: AICopilotMessage = {
+        id: String(Date.now()),
+        role: 'user',
+        content,
+        timestamp: new Date(),
+        attachments: msgAttachments,
+      };
+      setMessages((prev) => [...prev, userMessage]);
+      setIsTyping(true);
+
+      setTimeout(() => {
+        const fileInfo = msgAttachments?.length
+          ? `\n\nI received ${msgAttachments.length} file(s) and will analyze them shortly.`
+          : '';
+        const aiMessage: AICopilotMessage = {
+          id: String(Date.now() + 1),
+          role: 'assistant',
+          content: `Thanks for your message!${fileInfo}`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, aiMessage]);
+        setIsTyping(false);
+      }, 1500);
+    };
+
+    const handleOpenChat = () => {
+      setChatOpen(true);
+      setUnreadCount(0);
+    };
+
+    const sidebarItems: SidebarItem[] = [
+      { id: 'home', label: 'Dashboard', icon: <Home size={20} />, active: true },
+      { id: 'users', label: 'Users', icon: <Users size={20} /> },
+      { id: 'docs', label: 'Documents', icon: <FileText size={20} /> },
+      { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={20} /> },
+      { id: 'settings', label: 'Settings', icon: <Settings size={20} /> },
+    ];
+
+    const Logo = () => (
+      <div className="flex items-center gap-2">
+        <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold">
+          P
+        </div>
+        <span className="font-semibold">PHB App</span>
+      </div>
+    );
+
+    const LogoSmall = () => (
+      <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold">
+        P
+      </div>
+    );
+
+    return (
+      <div className="h-screen">
+        <AppLayout
+          sidebarItems={sidebarItems}
+          sidebarLogo={<Logo />}
+          sidebarLogoCollapsed={<LogoSmall />}
+          navbarTitle="Dashboard"
+          showSearch
+          user={{
+            name: 'John Doe',
+            email: 'john@example.com',
+          }}
+        >
+          <div className="space-y-4">
+            <h1 className="text-2xl font-bold">Welcome to the Dashboard</h1>
+            <p className="text-muted-foreground">
+              Click the floating chat button to open the AI assistant with file upload support.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="p-6 bg-card rounded-lg border">
+                  <h3 className="font-semibold mb-2">Card {i}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Sample content for demonstration purposes.
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </AppLayout>
+
+        <FloatingChatButton
+          onClick={handleOpenChat}
+          unreadCount={unreadCount}
+          showPulse={unreadCount > 0}
+        />
+
+        <AICopilotChat
+          open={chatOpen}
+          onOpenChange={setChatOpen}
+          messages={messages}
+          onSendMessage={handleSendMessage}
+          isTyping={isTyping}
+          suggestions={suggestions}
+          onSuggestionClick={handleSendMessage}
+          enableFileUpload
+          onFileError={(errors) =>
+            errors.forEach((e) => console.error(`File error: ${e.file.name} - ${e.reason}`))
+          }
         />
       </div>
     );

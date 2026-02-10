@@ -39,6 +39,9 @@ import {
   Calendar,
   Flag,
   AlertCircle,
+  Paperclip,
+  Music,
+  Eye,
 } from 'lucide-react';
 
 /**
@@ -3447,19 +3450,49 @@ export const FloatingChatButton: React.FC<FloatingChatButtonProps> = ({
  * ----------------------------------------------------------------------------
  */
 
+export type FileCategory = 'image' | 'pdf' | 'audio';
+
+export interface AICopilotFileAttachment {
+  id: string;
+  file: File;
+  category: FileCategory;
+  previewUrl?: string;
+}
+
+export interface AICopilotMessageAttachment {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  category: FileCategory;
+  url: string;
+}
+
+export interface AICopilotFileUploadConfig {
+  maxFileSizeMB?: number;
+  maxFilesPerMessage?: number;
+  acceptedFileTypes?: string[];
+}
+
+export interface AICopilotFileError {
+  file: File;
+  reason: 'invalid_type' | 'too_large' | 'too_many_files';
+}
+
 export interface AICopilotMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
   status?: 'sending' | 'sent' | 'error';
+  attachments?: AICopilotMessageAttachment[];
 }
 
 export interface AICopilotChatProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   messages: AICopilotMessage[];
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, attachments?: File[]) => void;
   isTyping?: boolean;
   title?: string;
   subtitle?: string;
@@ -3467,6 +3500,43 @@ export interface AICopilotChatProps {
   suggestions?: string[];
   onSuggestionClick?: (suggestion: string) => void;
   className?: string;
+  enableFileUpload?: boolean;
+  fileUploadConfig?: AICopilotFileUploadConfig;
+  onFileError?: (errors: AICopilotFileError[]) => void;
+}
+
+const DEFAULT_ACCEPTED_TYPES: Record<FileCategory, string[]> = {
+  image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+  pdf: ['application/pdf'],
+  audio: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm'],
+};
+
+const DEFAULT_ACCEPT_STRING =
+  'image/jpeg,image/png,image/gif,image/webp,application/pdf,audio/mpeg,audio/wav,audio/ogg,audio/webm';
+
+const DEFAULT_MAX_FILE_SIZE_MB = 10;
+const DEFAULT_MAX_FILES_PER_MESSAGE = 5;
+
+function categorizeFile(mimeType: string): FileCategory | null {
+  for (const [category, types] of Object.entries(DEFAULT_ACCEPTED_TYPES)) {
+    if (types.includes(mimeType)) return category as FileCategory;
+  }
+  return null;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function truncateFilename(name: string, maxLen: number = 25): string {
+  if (name.length <= maxLen) return name;
+  const ext = name.lastIndexOf('.') > 0 ? name.slice(name.lastIndexOf('.')) : '';
+  const base = name.slice(0, name.lastIndexOf('.') > 0 ? name.lastIndexOf('.') : name.length);
+  const truncLen = maxLen - ext.length - 3;
+  if (truncLen <= 0) return name.slice(0, maxLen);
+  return `${base.slice(0, truncLen)}...${ext}`;
 }
 
 export const AICopilotChat: React.FC<AICopilotChatProps> = ({
@@ -3481,10 +3551,22 @@ export const AICopilotChat: React.FC<AICopilotChatProps> = ({
   suggestions = [],
   onSuggestionClick,
   className,
+  enableFileUpload = false,
+  fileUploadConfig,
+  onFileError,
 }) => {
   const [input, setInput] = useState('');
+  const [queuedFiles, setQueuedFiles] = useState<AICopilotFileAttachment[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
+
+  const maxSizeMB = fileUploadConfig?.maxFileSizeMB ?? DEFAULT_MAX_FILE_SIZE_MB;
+  const maxFiles = fileUploadConfig?.maxFilesPerMessage ?? DEFAULT_MAX_FILES_PER_MESSAGE;
+  const acceptString = fileUploadConfig?.acceptedFileTypes?.join(',') ?? DEFAULT_ACCEPT_STRING;
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -3498,22 +3580,88 @@ export const AICopilotChat: React.FC<AICopilotChatProps> = ({
     }
   }, [open]);
 
-  // Handle escape key
+  // Clear queued files when modal closes
+  useEffect(() => {
+    if (!open) {
+      queuedFiles.forEach((f) => {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      });
+      setQueuedFiles([]);
+      setIsDragging(false);
+      dragCounterRef.current = 0;
+    }
+  }, [open]);
+
+  // Handle escape key (close lightbox first, then modal)
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onOpenChange(false);
+        if (lightboxUrl) {
+          setLightboxUrl(null);
+        } else {
+          onOpenChange(false);
+        }
       }
     };
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [onOpenChange]);
+  }, [onOpenChange, lightboxUrl]);
+
+  const validateAndQueueFiles = useCallback((fileList: FileList | File[]) => {
+    const files = Array.from(fileList);
+    const valid: AICopilotFileAttachment[] = [];
+    const errors: AICopilotFileError[] = [];
+    const currentCount = queuedFiles.length;
+
+    for (const file of files) {
+      if (currentCount + valid.length >= maxFiles) {
+        errors.push({ file, reason: 'too_many_files' });
+        continue;
+      }
+      const category = categorizeFile(file.type);
+      if (!category) {
+        errors.push({ file, reason: 'invalid_type' });
+        continue;
+      }
+      if (file.size > maxSizeMB * 1024 * 1024) {
+        errors.push({ file, reason: 'too_large' });
+        continue;
+      }
+      const previewUrl = category === 'image' ? URL.createObjectURL(file) : undefined;
+      valid.push({
+        id: `file-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        file,
+        category,
+        previewUrl,
+      });
+    }
+
+    if (valid.length > 0) {
+      setQueuedFiles((prev) => [...prev, ...valid]);
+    }
+    if (errors.length > 0 && onFileError) {
+      onFileError(errors);
+    }
+  }, [queuedFiles.length, maxFiles, maxSizeMB, onFileError]);
+
+  const removeQueuedFile = useCallback((id: string) => {
+    setQueuedFiles((prev) => {
+      const file = prev.find((f) => f.id === id);
+      if (file?.previewUrl) URL.revokeObjectURL(file.previewUrl);
+      return prev.filter((f) => f.id !== id);
+    });
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
-    onSendMessage(input.trim());
+    const hasText = input.trim().length > 0;
+    const hasFiles = queuedFiles.length > 0;
+    if (!hasText && !hasFiles) return;
+
+    const files = hasFiles ? queuedFiles.map((f) => f.file) : undefined;
+    onSendMessage(input.trim(), files);
     setInput('');
+    setQueuedFiles([]);
   };
 
   const handleSuggestionClick = (suggestion: string) => {
@@ -3532,6 +3680,139 @@ export const AICopilotChat: React.FC<AICopilotChatProps> = ({
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) {
+      validateAndQueueFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (!enableFileUpload) return;
+    const files = e.clipboardData.files;
+    if (files.length > 0) {
+      e.preventDefault();
+      validateAndQueueFiles(files);
+    }
+  };
+
+  const renderAttachments = (attachments: AICopilotMessageAttachment[], isUser: boolean) => {
+    if (!attachments || attachments.length === 0) return null;
+    return (
+      <div className="mt-2 space-y-2">
+        {/* Image grid */}
+        {attachments.filter((a) => a.category === 'image').length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {attachments
+              .filter((a) => a.category === 'image')
+              .map((att) => (
+                <button
+                  key={att.id}
+                  onClick={() => setLightboxUrl(att.url)}
+                  className="relative overflow-hidden rounded-lg border border-white/20 hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <img
+                    src={att.url}
+                    alt={att.name}
+                    className="h-32 max-w-[200px] object-cover rounded-lg"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors">
+                    <Eye className="h-5 w-5 text-white opacity-0 hover:opacity-100 transition-opacity" />
+                  </div>
+                </button>
+              ))}
+          </div>
+        )}
+        {/* PDF cards */}
+        {attachments
+          .filter((a) => a.category === 'pdf')
+          .map((att) => (
+            <a
+              key={att.id}
+              href={att.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                'flex items-center gap-3 rounded-lg border p-2.5 transition-colors',
+                isUser
+                  ? 'border-primary-foreground/20 bg-primary-foreground/10 hover:bg-primary-foreground/20'
+                  : 'border-border bg-background hover:bg-muted'
+              )}
+            >
+              <div className={cn(
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-md',
+                isUser ? 'bg-primary-foreground/20' : 'bg-red-100 dark:bg-red-900/30'
+              )}>
+                <FileText className={cn('h-4 w-4', isUser ? 'text-primary-foreground' : 'text-red-600 dark:text-red-400')} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className={cn('truncate text-xs font-medium', isUser ? 'text-primary-foreground' : 'text-foreground')}>
+                  {truncateFilename(att.name, 30)}
+                </p>
+                <p className={cn('text-[10px]', isUser ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
+                  PDF &middot; {formatFileSize(att.size)}
+                </p>
+              </div>
+              <Download className={cn('h-4 w-4 shrink-0', isUser ? 'text-primary-foreground/70' : 'text-muted-foreground')} />
+            </a>
+          ))}
+        {/* Audio players */}
+        {attachments
+          .filter((a) => a.category === 'audio')
+          .map((att) => (
+            <div
+              key={att.id}
+              className={cn(
+                'rounded-lg border p-2.5',
+                isUser
+                  ? 'border-primary-foreground/20 bg-primary-foreground/10'
+                  : 'border-border bg-background'
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <Music className={cn('h-3.5 w-3.5', isUser ? 'text-primary-foreground/70' : 'text-muted-foreground')} />
+                <span className={cn('truncate text-xs font-medium', isUser ? 'text-primary-foreground' : 'text-foreground')}>
+                  {truncateFilename(att.name, 30)}
+                </span>
+                <span className={cn('text-[10px] shrink-0', isUser ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
+                  {formatFileSize(att.size)}
+                </span>
+              </div>
+              <audio controls className="w-full h-8 [&::-webkit-media-controls-panel]:bg-transparent" style={{ maxHeight: '32px' }}>
+                <source src={att.url} type={att.type} />
+              </audio>
+            </div>
+          ))}
+      </div>
+    );
+  };
+
   if (!open) return null;
 
   return (
@@ -3548,7 +3829,22 @@ export const AICopilotChat: React.FC<AICopilotChatProps> = ({
           'relative flex h-[600px] w-full max-w-lg flex-col overflow-hidden rounded-xl border bg-card shadow-2xl',
           className
         )}
+        onDragEnter={enableFileUpload ? handleDragEnter : undefined}
+        onDragLeave={enableFileUpload ? handleDragLeave : undefined}
+        onDragOver={enableFileUpload ? handleDragOver : undefined}
+        onDrop={enableFileUpload ? handleDrop : undefined}
       >
+        {/* Drag overlay */}
+        {enableFileUpload && isDragging && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/10 backdrop-blur-[2px] border-2 border-dashed border-primary rounded-xl">
+            <div className="text-center">
+              <Paperclip className="mx-auto h-8 w-8 text-primary mb-2" />
+              <p className="text-sm font-medium text-primary">Drop files here</p>
+              <p className="text-xs text-muted-foreground mt-1">PDF, images, or audio</p>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-3">
           <div className="flex items-center gap-3">
@@ -3606,14 +3902,22 @@ export const AICopilotChat: React.FC<AICopilotChatProps> = ({
                     : 'bg-muted text-foreground rounded-tl-sm'
                 )}
               >
-                {message.role === 'assistant' ? (
-                  <div
-                    className="text-sm prose prose-sm max-w-none prose-p:my-1 prose-pre:my-2 prose-ul:my-1 prose-ol:my-1"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
-                  />
-                ) : (
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                {message.content && (
+                  message.role === 'assistant' ? (
+                    <div
+                      className="text-sm prose prose-sm max-w-none prose-p:my-1 prose-pre:my-2 prose-ul:my-1 prose-ol:my-1"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+                    />
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  )
                 )}
+
+                {/* Attachments */}
+                {message.attachments && message.attachments.length > 0 && (
+                  renderAttachments(message.attachments, message.role === 'user')
+                )}
+
                 <div
                   className={cn(
                     'mt-1 flex items-center gap-2 text-[10px]',
@@ -3659,27 +3963,113 @@ export const AICopilotChat: React.FC<AICopilotChatProps> = ({
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
+        {/* Input area */}
         <div className="border-t bg-card p-4">
-          <form onSubmit={handleSubmit} className="flex gap-2">
+          {/* File preview strip */}
+          {enableFileUpload && queuedFiles.length > 0 && (
+            <div className="mb-3 flex gap-2 overflow-x-auto pt-2 pr-2 pb-1" role="list" aria-label="Queued files">
+              {queuedFiles.map((qf) => (
+                <div
+                  key={qf.id}
+                  role="listitem"
+                  className="relative shrink-0 group/preview"
+                >
+                  {qf.category === 'image' && qf.previewUrl ? (
+                    <div className="relative h-14 w-14 rounded-lg overflow-hidden border bg-muted">
+                      <img src={qf.previewUrl} alt={qf.file.name} className="h-full w-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="flex h-14 items-center gap-2 rounded-lg border bg-muted px-3">
+                      {qf.category === 'pdf' ? (
+                        <FileText className="h-4 w-4 shrink-0 text-red-500" />
+                      ) : (
+                        <Music className="h-4 w-4 shrink-0 text-blue-500" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium max-w-[100px]">{truncateFilename(qf.file.name, 15)}</p>
+                        <p className="text-[10px] text-muted-foreground">{formatFileSize(qf.file.size)}</p>
+                      </div>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => removeQueuedFile(qf.id)}
+                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm opacity-0 group-hover/preview:opacity-100 transition-opacity"
+                    aria-label={`Remove ${qf.file.name}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="flex gap-2 items-end">
+            {/* Hidden file input */}
+            {enableFileUpload && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={acceptString}
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files) validateAndQueueFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            )}
+            {/* Attach button */}
+            {enableFileUpload && (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                aria-label="Attach files"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+            )}
             <input
               ref={inputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onPaste={handlePaste}
               placeholder={placeholder}
               className="flex-1 rounded-full border bg-background px-4 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
             <button
               type="submit"
-              disabled={!input.trim()}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors"
+              disabled={!input.trim() && queuedFiles.length === 0}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors"
             >
               <Send className="h-4 w-4" />
             </button>
           </form>
         </div>
       </div>
+
+      {/* Image Lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-8"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+            aria-label="Close lightbox"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Preview"
+            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 };
