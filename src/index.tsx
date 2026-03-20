@@ -345,6 +345,8 @@ export interface SelectProps {
   options?: SelectOption[];
   value?: string;
   onChange?: (value: string) => void;
+  /** Alias for onChange — provided for API compatibility with Radix-style components */
+  onValueChange?: (value: string) => void;
   disabled?: boolean;
   className?: string;
   /** Enable type-to-filter search input in the dropdown */
@@ -364,6 +366,7 @@ export const Select: React.FC<SelectProps> = ({
   options = [],
   value,
   onChange,
+  onValueChange,
   disabled,
   className,
   searchable = false,
@@ -372,6 +375,8 @@ export const Select: React.FC<SelectProps> = ({
   loadingMessage = 'Loading...',
   noResultsMessage = 'No results found',
 }) => {
+  // Support both onChange and onValueChange (Radix-style alias)
+  const handleChange = onChange ?? onValueChange;
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [remoteOptions, setRemoteOptions] = useState<SelectOption[]>([]);
@@ -519,7 +524,7 @@ export const Select: React.FC<SelectProps> = ({
                 <div
                   key={opt.value}
                   onClick={() => {
-                    onChange?.(opt.value);
+                    handleChange?.(opt.value);
                     if (isRemote) setSelectedOption(opt);
                     setIsOpen(false);
                     setSearchQuery('');
